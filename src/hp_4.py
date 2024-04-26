@@ -1,49 +1,61 @@
-from datetime import datetime
+from datetime import datetime, timedelta
 from csv import DictReader, DictWriter
 from collections import defaultdict
-
+import os
 
 def reformat_dates(old_dates):
-    """Accepts a list of date strings in format yyyy-mm-dd, re-formats each
-    element to a format dd mmm yyyy--01 Jan 2001."""
-    reformatted_dates = []
-    for date_str in old_dates:
-        date_obj = datetime.strptime(date_str, '%Y-%m-%d')
-        reformatted_date = date_obj.strftime('%d %b %Y')
-        reformatted_dates.append(reformatted_date)
-    return reformatted_dates
+    """Reformat date strings in 'yyyy-mm-dd' format to 'dd mmm yyyy'."""
+    return [datetime.strptime(date, '%Y-%m-%d').strftime('%d %b %Y') for date in old_dates]
 
+def date_range(start, n):
+    """Return a list of n datetime objects starting from start."""
+    start_date = datetime.strptime(start, '%Y-%m-%d')
+    return [start_date + timedelta(days=i) for i in range(n)]
 
-def detect_date_format(date_str):
-    """Detects the date format of a given date string."""
-    formats_to_try = ['%m/%d/%Y', '%m/%d/%y', '%Y-%m-%d']
-    for date_format in formats_to_try:
-        try:
-            datetime.strptime(date_str, date_format)
-            return date_format
-        except ValueError:
-            continue
-    raise ValueError("Unable to detect date format for date string: {}".format(date_str))
-
+def add_date_range(values, start_date):
+    """Add a daily date range to the list of values starting from start_date."""
+    start_datetime = datetime.strptime(start_date, '%Y-%m-%d')
+    return [(start_datetime + timedelta(days=i), value) for i, value in enumerate(values)]
 
 def fees_report(infile, outfile):
-    """Calculates late fees per patron id and writes a summary report to
-    outfile."""
+    """Calculate late fees per patron id and write a summary report to outfile."""
     late_fees = defaultdict(float)
-    with open(infile, 'r') as file:
+    with open(infile, mode='r') as file:
         reader = DictReader(file)
         for row in reader:
-            due_date = datetime.strptime(row['date_due'], '%m/%d/%Y')
-            return_date_format = detect_date_format(row['date_returned'])
-            return_date = datetime.strptime(row['date_returned'], return_date_format)
-            if return_date > due_date:
-                days_late = (return_date - due_date).days
-                late_fee = days_late * 0.25
-                patron_id = row['patron_id']
-                late_fees[patron_id] += late_fee
+            date_due = datetime.strptime(row['date_due'], '%m/%d/%Y')
+            date_returned = datetime.strptime(row['date_returned'], '%m/%d/%Y')
+            if date_returned > date_due:
+                days_late = (date_returned - date_due).days
+                late_fees[row['patron_id']] += days_late * 0.25
 
-    with open(outfile, 'w', newline='') as file:
+    # Include all patrons in the output, even if they have no late fees
+    all_patrons = set()
+    with open(infile, mode='r') as file:
+        reader = DictReader(file)
+        for row in reader:
+            all_patrons.add(row['patron_id'])
+
+    with open(outfile, mode='w', newline='') as file:
         writer = DictWriter(file, fieldnames=['patron_id', 'late_fees'])
         writer.writeheader()
-        for patron_id, fee in late_fees.items():
-            writer.writerow({'patron_id': patron_id, 'late_fees': '{:.2f}'.format(fee)})
+        for patron_id in all_patrons:
+            writer.writerow({'patron_id': patron_id, 'late_fees': '{:.2f}'.format(late_fees.get(patron_id, 0.00))})
+
+
+if __name__ == '__main__':
+    try:
+        from src.util import get_data_file_path
+    except ImportError:
+        from util import get_data_file_path
+
+    # Specify the input file path
+    BOOK_RETURNS_PATH = get_data_file_path('book_returns_short.csv')
+    # Specify the output file name
+    OUTFILE = 'book_fees.csv'
+
+    fees_report(BOOK_RETURNS_PATH, OUTFILE)
+
+    # Print the data written to the outfile
+    with open(OUTFILE) as f:
+        print(f.read())
