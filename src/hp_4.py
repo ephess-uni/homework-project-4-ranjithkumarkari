@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta
+from datetime import datetime
 from csv import DictReader, DictWriter
 from collections import defaultdict
 
@@ -14,24 +14,16 @@ def reformat_dates(old_dates):
     return reformatted_dates
 
 
-def date_range(start, n):
-    """For input date string `start`, with format 'yyyy-mm-dd', returns
-    a list of of `n` datetime objects starting at `start` where each
-    element in the list is one day after the previous."""
-    if not isinstance(start, str):
-        raise TypeError("Start date should be a string.")
-    if not isinstance(n, int):
-        raise TypeError("Number of days should be an integer.")
-    start_date = datetime.strptime(start, '%Y-%m-%d')
-    return [start_date + timedelta(days=i) for i in range(n)]
-
-
-def add_date_range(values, start_date):
-    """Adds a daily date range to the list `values` beginning with
-    `start_date`.  The date, value pairs are returned as tuples
-    in the returned list."""
-    dates = date_range(start_date, len(values))
-    return list(zip(dates, values))
+def detect_date_format(date_str):
+    """Detects the date format of a given date string."""
+    formats_to_try = ['%m/%d/%Y', '%m/%d/%y', '%Y-%m-%d']
+    for date_format in formats_to_try:
+        try:
+            datetime.strptime(date_str, date_format)
+            return date_format
+        except ValueError:
+            continue
+    raise ValueError("Unable to detect date format for date string: {}".format(date_str))
 
 
 def fees_report(infile, outfile):
@@ -42,7 +34,8 @@ def fees_report(infile, outfile):
         reader = DictReader(file)
         for row in reader:
             due_date = datetime.strptime(row['date_due'], '%m/%d/%Y')
-            return_date = datetime.strptime(row['date_returned'], '%m/%d/%y')
+            return_date_format = detect_date_format(row['date_returned'])
+            return_date = datetime.strptime(row['date_returned'], return_date_format)
             if return_date > due_date:
                 days_late = (return_date - due_date).days
                 late_fee = days_late * 0.25
